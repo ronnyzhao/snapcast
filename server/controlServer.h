@@ -1,6 +1,6 @@
 /***
     This file is part of snapcast
-    Copyright (C) 2014-2016  Johannes Pohl
+    Copyright (C) 2014-2018  Johannes Pohl
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -61,10 +61,12 @@ public:
 private:
 	void startAccept();
 	void handleAccept(socket_ptr socket);
+	void cleanup();
 //	void acceptor();
-	mutable std::mutex mutex_;
+	mutable std::recursive_mutex mutex_;
 	std::set<std::shared_ptr<ControlSession>> sessions_;
-	std::shared_ptr<tcp::acceptor> acceptor_;
+	std::shared_ptr<tcp::acceptor> acceptor_v4_;
+	std::shared_ptr<tcp::acceptor> acceptor_v6_;
 
 	Queue<std::shared_ptr<msg::BaseMessage>> messages_;
 	asio::io_service* io_service_;

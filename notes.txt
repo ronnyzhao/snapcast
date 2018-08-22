@@ -1,10 +1,8 @@
 *TODO:
 -Server ping client?
--Server: OnResync while terminating?!?
 -LastSeen: relative time [s] or [ms]?
 -Android crash: Empty latency => app restart => empty client list
--Segfault when ^c on OpenWrt with client connected
-
+-Android clean data structures after changing the Server
 
 *JSON RPC:
 curl -X POST -H "Content-Type: application/json" -d '{"jsonrpc": "2.0", "method": "Application.SetVolume", "params": {"volume":100}, "id": 1}' http://i3c.pla.lcl:8080/jsonrpc
@@ -79,11 +77,6 @@ https://www.musicpd.org/doc/user/config_audio_outputs.html#ao_format
 *URI:
 https://en.wikipedia.org/wiki/Uniform_Resource_Identifier
 
-*0.7:
--HiRes Audio
--Android auto start
--pipe creation mode: `-s pipe:///tmp/snapfifo?mode=[read|create]`
-
 
 *Dependencies
 libavahi-client3
@@ -95,3 +88,18 @@ libvorbisenc2
 
 *Mac
 brew install autoconf automake pkg-config libtool
+
+
+*Listen
+https://www.postgresql.org/docs/9.1/static/runtime-config-connection.html
+http://www.cyberciti.biz/faq/unix-linux-mysqld-server-bind-to-more-than-one-ip-address/
+
+
+*Sonos
+https://www.youtube.com/watch?v=LGv6vL-YDIk
+https://www.youtube.com/watch?v=W8A7rtVkdrE&t=2s
+
+
+*MPD
+https://git.devuan.org/dev1fanboy/mpd
+https://git.devuan.org/dev1fanboy/mpd/blob/master/src/Main.cxx

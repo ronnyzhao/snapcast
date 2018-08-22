@@ -1,6 +1,6 @@
 /***
     This file is part of snapcast
-    Copyright (C) 2014-2016  Johannes Pohl
+    Copyright (C) 2014-2018  Johannes Pohl
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -24,6 +24,7 @@
 #include "decoder/decoder.h"
 #include "message/message.h"
 #include "message/serverSettings.h"
+#include "message/streamTags.h"
 #include "player/pcmDevice.h"
 #ifdef HAS_ALSA
 #include "player/alsaPlayer.h"
@@ -34,18 +35,20 @@
 #endif
 #include "clientConnection.h"
 #include "stream.h"
+#include "metadata.h"
 
 
 /// Forwards PCM data to the audio player
 /**
  * Sets up a connection to the server (using ClientConnection)
- * Sets up the audio decoder and player. Decodes audio feeds PCM to the audio stream buffer
+ * Sets up the audio decoder and player. 
+ * Decodes audio (message_type::kWireChunk) and feeds PCM to the audio stream buffer
  * Does timesync with the server
  */
 class Controller : public MessageReceiver
 {
 public:
-	Controller();
+	Controller(const std::string& clientId, size_t instance, std::shared_ptr<MetadataAdapter> meta);
 	void start(const PcmDevice& pcmDevice, const std::string& host, size_t port, int latency);
 	void stop();
 
@@ -55,26 +58,30 @@ public:
 
 	/// Implementation of MessageReceiver.
 	/// Used for async exception reporting
-	virtual void onException(ClientConnection* connection, const std::exception& exception);
+	virtual void onException(ClientConnection* connection, shared_exception_ptr exception);
 
 private:
 	void worker();
 	bool sendTimeSyncMessage(long after = 1000);
+	std::string hostId_;
+	std::string meta_callback_;
+	size_t instance_;
 	std::atomic<bool> active_;
 	std::thread controllerThread_;
 	SampleFormat sampleFormat_;
 	PcmDevice pcmDevice_;
 	int latency_;
 	std::unique_ptr<ClientConnection> clientConnection_;
-	std::unique_ptr<Stream> stream_;
+	std::shared_ptr<Stream> stream_;
 	std::unique_ptr<Decoder> decoder_;
 	std::unique_ptr<Player> player_;
+	std::shared_ptr<MetadataAdapter> meta_;
 	std::shared_ptr<msg::ServerSettings> serverSettings_;
+	std::shared_ptr<msg::StreamTags> streamTags_;
 	std::shared_ptr<msg::CodecHeader> headerChunk_;
 	std::mutex receiveMutex_;
 
-	std::string exception_;
-	bool asyncException_;
+	shared_exception_ptr async_exception_;
 };
 
 

@@ -1,6 +1,6 @@
 /***
     This file is part of snapcast
-    Copyright (C) 2014-2016  Johannes Pohl
+    Copyright (C) 2014-2018  Johannes Pohl
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -20,6 +20,11 @@
 #define FLAC_DECODER_H
 
 #include "decoder.h"
+
+#include <FLAC/stream_decoder.h>
+#include <atomic>
+#include <memory>
+
 
 
 struct CacheInfo
@@ -50,6 +55,7 @@ public:
 	virtual SampleFormat setHeader(msg::CodecHeader* chunk);
 
 	CacheInfo cacheInfo_;
+	std::unique_ptr<FLAC__StreamDecoderErrorStatus> lastError_;
 };
 
 

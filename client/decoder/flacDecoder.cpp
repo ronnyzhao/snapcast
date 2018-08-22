@@ -1,6 +1,6 @@
 /***
     This file is part of snapcast
-    Copyright (C) 2014-2016  Johannes Pohl
+    Copyright (C) 2014-2018  Johannes Pohl
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -19,11 +19,10 @@
 #include <iostream>
 #include <cstring>
 #include <cmath>
-#include <FLAC/stream_decoder.h>
 #include "flacDecoder.h"
 #include "common/snapException.h"
-#include "common/endian.h"
-#include "common/log.h"
+#include "common/endian.hpp"
+#include "aixlog.hpp"
 
 
 using namespace std;
@@ -43,7 +42,7 @@ static FLAC__StreamDecoder *decoder = NULL;
 
 
 
-FlacDecoder::FlacDecoder() : Decoder()
+FlacDecoder::FlacDecoder() : Decoder(), lastError_(nullptr)
 {
 	flacChunk = new msg::PcmChunk();
 }
@@ -69,7 +68,19 @@ bool FlacDecoder::decode(msg::PcmChunk* chunk)
 	pcmChunk->payload = (char*)realloc(pcmChunk->payload, 0);
 	pcmChunk->payloadSize = 0;
 	while (flacChunk->payloadSize > 0)
-		FLAC__stream_decoder_process_single(decoder);
+	{
+		if (!FLAC__stream_decoder_process_single(decoder))
+		{
+			return false;
+		}
+
+		if (lastError_)
+		{
+			LOG(ERROR) << "FLAC decode error: " << FLAC__StreamDecoderErrorStatusString[*lastError_] << "\n";
+			lastError_= nullptr;
+			return false;
+		}
+	}
 
 	if ((cacheInfo_.cachedBlocks_ > 0) && (cacheInfo_.sampleRate_ != 0))
 	{
@@ -77,7 +88,7 @@ bool FlacDecoder::decode(msg::PcmChunk* chunk)
 		int32_t s = (diffMs / 1000);
 		int32_t us = (diffMs * 1000);
 		us %= 1000000;
-		logD << "Cached: " << cacheInfo_.cachedBlocks_ << ", " << diffMs << "ms, " << s << "s, " << us << "us\n";
+		LOG(DEBUG) << "Cached: " << cacheInfo_.cachedBlocks_ << ", " << diffMs << "ms, " << s << "s, " << us << "us\n";
 		chunk->timestamp = chunk->timestamp - tv(s, us);
 	}
 	return true;
@@ -116,9 +127,13 @@ FLAC__StreamDecoderReadStatus read_callback(const FLAC__StreamDecoder *decoder, 
 	}
 	else if (flacChunk != NULL)
 	{
+//		cerr << "read_callback: " << *bytes << ", avail: " << flacChunk->payloadSize << "\n";
 		static_cast<FlacDecoder*>(client_data)->cacheInfo_.isCachedChunk_ = false;
 		if (*bytes > flacChunk->payloadSize)
 			*bytes = flacChunk->payloadSize;
+
+//		if (*bytes == 0)
+//			return FLAC__STREAM_DECODER_READ_STATUS_END_OF_STREAM;
 
 		memcpy(buffer, flacChunk->payload, *bytes);
 		memmove(flacChunk->payload, flacChunk->payload + *bytes, flacChunk->payloadSize - *bytes);
@@ -147,7 +162,7 @@ FLAC__StreamDecoderWriteStatus write_callback(const FLAC__StreamDecoder *decoder
 		{
 			if (buffer[channel] == NULL)
 			{
-				logS(kLogErr) << "ERROR: buffer[" << channel << "] is NULL\n";
+				SLOG(ERROR) << "ERROR: buffer[" << channel << "] is NULL\n";
 				return FLAC__STREAM_DECODER_WRITE_STATUS_ABORT;
 			}
 			
@@ -195,7 +210,18 @@ void metadata_callback(const FLAC__StreamDecoder *decoder, const FLAC__StreamMet
 void error_callback(const FLAC__StreamDecoder *decoder, FLAC__StreamDecoderErrorStatus status, void *client_data)
 {
 	(void)decoder, (void)client_data;
-	logS(kLogErr) << "Got error callback: " << FLAC__StreamDecoderErrorStatusString[status] << "\n";
+	SLOG(ERROR) << "Got error callback: " << FLAC__StreamDecoderErrorStatusString[status] << "\n";
+	static_cast<FlacDecoder*>(client_data)->lastError_ = std::unique_ptr<FLAC__StreamDecoderErrorStatus>(new FLAC__StreamDecoderErrorStatus(status));
+
+	/// TODO, see issue #120:
+	// Thu Nov 10 07:26:44 2016 daemon.warn dnsmasq-dhcp[1194]: no address range available for DHCP request via wlan0
+	// Thu Nov 10 07:54:39 2016 daemon.err snapclient[1158]: Got error callback: FLAC__STREAM_DECODER_ERROR_STATUS_LOST_SYNC
+	// Thu Nov 10 07:54:39 2016 daemon.err snapclient[1158]: Got error callback: FLAC__STREAM_DECODER_ERROR_STATUS_LOST_SYNC
+	//
+	// and:
+	// Oct 27 17:37:38 kitchen snapclient[869]: Connected to 192.168.222.10
+	// Oct 27 17:47:13 kitchen snapclient[869]: Got error callback: FLAC__STREAM_DECODER_ERROR_STATUS_UNPARSEABLE_STREAM
+	// Oct 27 17:47:13 kitchen snapclient[869]: Got error callback: FLAC__STREAM_DECODER_ERROR_STATUS_LOST_SYNC
 }
 
 

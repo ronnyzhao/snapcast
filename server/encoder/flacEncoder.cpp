@@ -1,6 +1,6 @@
 /***
     This file is part of snapcast
-    Copyright (C) 2014-2016  Johannes Pohl
+    Copyright (C) 2014-2018  Johannes Pohl
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -21,7 +21,7 @@
 #include "flacEncoder.h"
 #include "common/strCompat.h"
 #include "common/snapException.h"
-#include "common/log.h"
+#include "aixlog.hpp"
 
 using namespace std;
 
@@ -71,7 +71,7 @@ void FlacEncoder::encode(const msg::PcmChunk* chunk)
 {
 	int samples = chunk->getSampleCount();
 	int frames = chunk->getFrameCount();
-//	logO << "payload: " << chunk->payloadSize << "\tframes: " << frames << "\tsamples: " << samples << "\tduration: " << chunk->duration<chronos::msec>().count() << "\n";
+//	LOG(INFO) << "payload: " << chunk->payloadSize << "\tframes: " << frames << "\tsamples: " << samples << "\tduration: " << chunk->duration<chronos::msec>().count() << "\n";
 
 	if (pcmBufferSize_ < samples)
 	{
@@ -81,19 +81,19 @@ void FlacEncoder::encode(const msg::PcmChunk* chunk)
 
 	if (sampleFormat_.sampleSize == 1)
 	{
-		FLAC__int8* buffer = (FLAC__int8*)chunk->payload; 
+		FLAC__int8* buffer = (FLAC__int8*)chunk->payload;
 		for(int i=0; i<samples; i++)
 			pcmBuffer_[i] = (FLAC__int32)(buffer[i]);
 	}
 	else if (sampleFormat_.sampleSize == 2)
 	{
-		FLAC__int16* buffer = (FLAC__int16*)chunk->payload; 
+		FLAC__int16* buffer = (FLAC__int16*)chunk->payload;
 		for(int i=0; i<samples; i++)
 			pcmBuffer_[i] = (FLAC__int32)(buffer[i]);
 	}
 	else if (sampleFormat_.sampleSize == 4)
 	{
-		FLAC__int32* buffer = (FLAC__int32*)chunk->payload; 
+		FLAC__int32* buffer = (FLAC__int32*)chunk->payload;
 		for(int i=0; i<samples; i++)
 			pcmBuffer_[i] = (FLAC__int32)(buffer[i]);
 	}
@@ -104,7 +104,7 @@ void FlacEncoder::encode(const msg::PcmChunk* chunk)
 	if (encodedSamples_ > 0)
 	{
 		double resMs = encodedSamples_ / ((double)sampleFormat_.rate / 1000.);
-//		logO << "encoded: " << chunk->payloadSize << "\tframes: " << encodedSamples_ << "\tres: " << resMs << "\n";
+//		LOG(INFO) << "encoded: " << chunk->payloadSize << "\tframes: " << encodedSamples_ << "\tres: " << resMs << "\n";
 		encodedSamples_ = 0;
 		listener_->onChunkEncoded(this, flacChunk_, resMs);
 		flacChunk_ = new msg::PcmChunk(chunk->format, 0);
@@ -118,7 +118,7 @@ FLAC__StreamEncoderWriteStatus FlacEncoder::write_callback(const FLAC__StreamEnc
     unsigned samples,
     unsigned current_frame)
 {
-//	logO << "write_callback: " << bytes << ", " << samples << ", " << current_frame << "\n";
+//	LOG(INFO) << "write_callback: " << bytes << ", " << samples << ", " << current_frame << "\n";
 	if ((current_frame == 0) && (bytes > 0) && (samples == 0))
 	{
 		headerChunk_->payload = (char*)realloc(headerChunk_->payload, headerChunk_->payloadSize + bytes);

@@ -3,7 +3,11 @@ Snapcast
 
 ![Snapcast](https://raw.githubusercontent.com/badaix/snapcast/master/doc/Snapcast_800.png)
 
-**S**y**n**chronous **a**udio **p**layer
+**S**y**n**chronous **a**udio **p**layer  
+  
+[![Build Status](
+https://travis-ci.org/badaix/snapcast.svg?branch=master)](https://travis-ci.org/badaix/snapcast)
+[![Github Releases](https://img.shields.io/github/release/badaix/snapcast.svg)](https://github.com/badaix/snapcast/releases)
 
 Snapcast is a multi-room client-server audio player, where all clients are time synchronized with the server to play perfectly synced audio. It's not a standalone player, but an extension that turns your existing audio player into a Sonos-like multi-room solution.
 The server's audio input is a named pipe `/tmp/snapfifo`. All data that is fed into this file will be send to the connected clients. One of the most generic ways to use Snapcast is in conjunction with the music player daemon ([MPD](http://www.musicpd.org/)) or [Mopidy](https://www.mopidy.com/), which can be configured to use a named pipe as audio output.
@@ -28,15 +32,17 @@ Installation
 ------------
 You can either build and install snapcast from source, or on debian systems install a prebuild .deb package
 
-###Installation from source
+### Installation from source
 Please follow this [guide](doc/build.md) to build Snapcast for
 * [Linux](doc/build.md#linux-native)
 * [FreeBSD](doc/build.md#freebsd-native)
 * [macOS](doc/build.md#macos-native)
 * [Android](doc/build.md#android-cross-compile)
-* [OpenWrt](doc/build.md#openwrt-cross-compile)
+* [OpenWrt](doc/build.md#openwrtlede-cross-compile)
+* [Buildroot](doc/build.md#buildroot-cross-compile)
+  * [Raspberry Pi](doc/build.md#raspberry-pi-cross-compile)
 
-###Install debian packages
+### Install debian packages
 Download the debian package for your CPU architecture from the [latest release page](https://github.com/badaix/snapcast/releases/latest), e.g. for Raspberry pi `snapclient_0.x.x_armhf.deb`
 Install the package:
 
@@ -49,6 +55,10 @@ Install missing dependencies:
 On OpenWrt do:
 
     $ opkg install snapclient_0.x.x_ar71xx.ipk
+
+On Alpine Linux (testing repository) do:
+
+    $ apk add snapcast
 
 Configuration
 -------------
@@ -84,16 +94,28 @@ https://www.raspberrypi.org/documentation/configuration/wireless/wireless-cli.md
 
 Control
 -------
-Snapcast can be controlled using JSON-RPC:
+Snapcast can be controlled using a [JSON-RPC API](doc/json_rpc_api/v2_0_0.md):
 * Set client's volume
 * Mute clients
 * Rename clients
 * Assign a client to a stream
 * ...
 
-There is an Android client available in [Releases](https://github.com/badaix/snapcast/releases/latest) 
+There is an Android client [snapdroid](https://github.com/badaix/snapdroid) available in [Releases](https://github.com/badaix/snapdroid/releases/latest) 
 
 ![Snapcast for Android](https://raw.githubusercontent.com/badaix/snapcast/master/doc/snapcast_android_scaled.png)
+
+There is also an unofficial WebApp from @atoomic [atoomic/snapcast-volume-ui](https://github.com/atoomic/snapcast-volume-ui).
+This app list all clients connected to a server and allow to control individualy the volume of each client.
+Once installed, you can use any mobile device, laptop, desktop, or browser.
+
+There is also an [unofficial FHEM module](https://forum.fhem.de/index.php/topic,62389.0.html) from @unimatrix27 which integrates a snapcast controller in to the [FHEM](https://fhem.de/fhem.html) home automation system.
+
+There is a [snapcast component for Home Assistant](https://home-assistant.io/components/media_player.snapcast/) which integrates a snapcast controller in to the [Home Assistant](https://home-assistant.io/) home automation system.
+
+For a webinterface in python, see [snapcastr](https://github.com/xkonni/snapcastr), based on [python-snapcast](https://github.com/happyleavesaoc/python-snapcast). This interface controls client volume and assigns streams to groups.
+
+Another webinterface running on any device, see [snapcast-websockets-ui](https://github.com/derglaus/snapcast-websockets-ui), running entirely in the browser, needs [websockify](https://github.com/novnc/websockify). No configuration needed, features almost all functions, still needs some tuning for the optics.
 
 Setup of audio players/server
 -----------------------------
@@ -105,22 +127,29 @@ The goal is to build the following chain:
     audio player software -> snapfifo -> snapserver -> network -> snapclient -> alsa
 
 This [guide](doc/player_setup.md) shows how to configure different players/audio sources to redirect their audio signal into the Snapserver's fifo:
-* [MPD](doc/player_setup.md#mpd-setup)
-* [Mopidy](doc/player_setup.md#mopidy-setup)
-* [MPlayer](doc/player_setup.md#mplayer-setup)
-* [Alsa](doc/player_setup.md#alsa-setup)
-* [PulseAudio](doc/player_setup.md#pulseaudio-setup)
+* [MPD](doc/player_setup.md#mpd)
+* [Mopidy](doc/player_setup.md#mopidy)
+* [FFmpeg](doc/player_setup.md#ffmpeg)
+* [mpv](doc/player_setup.md#mpv)
+* [MPlayer](doc/player_setup.md#mplayer)
+* [Alsa](doc/player_setup.md#alsa)
+* [PulseAudio](doc/player_setup.md#pulseaudio)
+* [AirPlay](doc/player_setup.md#airplay)
+* [Spotify](doc/player_setup.md#spotify)
+* [Process](doc/player_setup.md#process)
+* [Line-in](doc/player_setup.md#line-in)
 
 Roadmap
 -------
 Unordered list of features that should make it into the v1.0
 - [X] **Remote control** JSON-RPC API to change client latency, volume, zone, ...
 - [X] **Android client** JSON-RPC client and Snapclient
-- [X] **Zones** Support multiple streams
+- [X] **Streams** Support multiple streams
 - [X] **Debian packages** prebuild deb packages
 - [X] **Endian** independent code
 - [X] **OpenWrt** port Snapclient to OpenWrt
 - [X] **Hi-Res audio** support (like 192kHz 24bit)
+- [X] **Groups** support multiple Groups of clients ("Zones")
 - [ ] **JSON-RPC** Possibility to add, remove, rename streams
 - [ ] **Protocol specification** Snapcast binary streaming protocol, JSON-RPC protocol
-- [ ] **Ports** Snapclient for Windows, Mac OS X, ...
+- [ ] **Ports** Snapclient for Windows, ~~Mac OS X~~, ...

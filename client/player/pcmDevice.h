@@ -1,6 +1,6 @@
 /***
     This file is part of snapcast
-    Copyright (C) 2014-2016  Johannes Pohl
+    Copyright (C) 2014-2018  Johannes Pohl
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -24,7 +24,16 @@
 
 struct PcmDevice
 {
-	PcmDevice() : idx(-1){};
+	PcmDevice() : 
+		idx(-1), name("default")
+	{
+	};
+	
+	PcmDevice(int idx, const std::string& name, const std::string& description = "") : 
+		idx(idx), name(name), description(description) 
+	{
+	};
+
 	int idx;
 	std::string name;
 	std::string description;

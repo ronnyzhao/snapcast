@@ -1,6 +1,6 @@
 /***
     This file is part of snapcast
-    Copyright (C) 2014-2016  Johannes Pohl
+    Copyright (C) 2014-2018  Johannes Pohl
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -19,11 +19,10 @@
 #include <memory>
 #include <sys/stat.h>
 #include <fcntl.h>
-#include <unistd.h>
 
 #include "fileStream.h"
 #include "encoder/encoderFactory.h"
-#include "common/log.h"
+#include "aixlog.hpp"
 #include "common/snapException.h"
 
 
@@ -37,7 +36,7 @@ FileStream::FileStream(PcmListener* pcmListener, const StreamUri& uri) : PcmStre
 	ifs.open(uri_.path.c_str(), std::ifstream::in|std::ifstream::binary);
 	if (!ifs.good())
 	{
-		logE << "failed to open PCM file: \"" + uri_.path + "\"\n";
+		LOG(ERROR) << "failed to open PCM file: \"" + uri_.path + "\"\n";
 		throw SnapException("failed to open PCM file: \"" + uri_.path + "\"");
 	}
 }
@@ -62,7 +61,7 @@ void FileStream::worker()
 
 	while (active_)
 	{
-		gettimeofday(&tvChunk, NULL);
+		chronos::systemtimeofday(&tvChunk);
 		tvEncodedChunk_ = tvChunk;
 		long nextTick = chronos::getTickCount();
 		try
@@ -85,18 +84,20 @@ void FileStream::worker()
 				ifs.read(chunk->payload + count, toRead - count);
 
 				encoder_->encode(chunk.get());
+				if (!active_) break;
 				nextTick += pcmReadMs_;
 				chronos::addUs(tvChunk, pcmReadMs_ * 1000);
 				long currentTick = chronos::getTickCount();
 
 				if (nextTick >= currentTick)
 				{
-//					logO << "sleep: " << nextTick - currentTick << "\n";
-					usleep((nextTick - currentTick) * 1000);
+//					LOG(INFO) << "sleep: " << nextTick - currentTick << "\n";
+					if (!sleep(nextTick - currentTick))
+						break;
 				}
 				else
 				{
-					gettimeofday(&tvChunk, NULL);
+					chronos::systemtimeofday(&tvChunk);
 					tvEncodedChunk_ = tvChunk;
 					pcmListener_->onResync(this, currentTick - nextTick);
 					nextTick = currentTick;
@@ -105,7 +106,7 @@ void FileStream::worker()
 		}
 		catch(const std::exception& e)
 		{
-			logE << "Exception: " << e.what() << std::endl;
+			LOG(ERROR) << "(FileStream) Exception: " << e.what() << std::endl;
 		}
 	}
 }

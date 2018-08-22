@@ -1,6 +1,6 @@
 /***
     This file is part of snapcast
-    Copyright (C) 2014-2016  Johannes Pohl
+    Copyright (C) 2014-2018  Johannes Pohl
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -22,8 +22,8 @@
 
 #include "oggDecoder.h"
 #include "common/snapException.h"
-#include "common/endian.h"
-#include "common/log.h"
+#include "common/endian.hpp"
+#include "aixlog.hpp"
 
 
 using namespace std;
@@ -71,7 +71,7 @@ bool OggDecoder::decode(msg::PcmChunk* chunk)
 		if (result < 0)
 		{
 			/* missing or corrupt data at this page position */
-			logE << "Corrupt or missing data in bitstream; continuing...\n";
+			LOG(ERROR) << "Corrupt or missing data in bitstream; continuing...\n";
 			continue;
 		}
 
@@ -229,11 +229,11 @@ SampleFormat OggDecoder::setHeader(msg::CodecHeader* chunk)
 		std::string comment(*ptr);
 		if (comment.find("SAMPLE_FORMAT=") == 0)
 			sampleFormat_.setFormat(comment.substr(comment.find("=") + 1));
-		logO << "comment: " << comment << "\n";;
+		LOG(INFO) << "comment: " << comment << "\n";;
 		++ptr;
 	}
 
-	logO << "Encoded by: " << vc.vendor << "\n";
+	LOG(INFO) << "Encoded by: " << vc.vendor << "\n";
 
 	return sampleFormat_;
 }

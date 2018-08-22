@@ -1,6 +1,6 @@
 /***
     This file is part of snapcast
-    Copyright (C) 2014-2016  Johannes Pohl
+    Copyright (C) 2014-2018  Johannes Pohl
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -16,7 +16,8 @@
     along with this program.  If not, see <http://www.gnu.org/licenses/>.
 ***/
 
-#include <unistd.h>
+//#include <CoreServices/CoreServices.h>
+#include <CoreAudio/CoreAudio.h>
 #include "coreAudioPlayer.h"
 
 #define NUM_BUFFERS 2
@@ -32,7 +33,7 @@ void callback(void *custom_data, AudioQueueRef queue, AudioQueueBufferRef buffer
 }
 
 
-CoreAudioPlayer::CoreAudioPlayer(const PcmDevice& pcmDevice, Stream* stream) : 
+CoreAudioPlayer::CoreAudioPlayer(const PcmDevice& pcmDevice, std::shared_ptr<Stream> stream) :
     Player(pcmDevice, stream),
 	ms_(100),
 	pubStream_(stream)
@@ -42,6 +43,54 @@ CoreAudioPlayer::CoreAudioPlayer(const PcmDevice& pcmDevice, Stream* stream) :
 
 CoreAudioPlayer::~CoreAudioPlayer()
 {
+}
+
+
+/// TODO: experimental. No output device can be configured yet.
+std::vector<PcmDevice> CoreAudioPlayer::pcm_list(void)
+{
+	UInt32 propsize;
+	
+	AudioObjectPropertyAddress theAddress = { kAudioHardwarePropertyDevices,
+											kAudioObjectPropertyScopeGlobal,
+											kAudioObjectPropertyElementMaster };
+	
+	AudioObjectGetPropertyDataSize(kAudioObjectSystemObject, &theAddress, 0, NULL, &propsize);
+	int nDevices = propsize / sizeof(AudioDeviceID);    
+	AudioDeviceID *devids = new AudioDeviceID[nDevices];
+	AudioObjectGetPropertyData(kAudioObjectSystemObject, &theAddress, 0, NULL, &propsize, devids);
+
+	std::vector<PcmDevice> result;
+	for (int i = 0; i < nDevices; ++i) 
+	{
+		if (devids[i] == kAudioDeviceUnknown)
+			continue;
+
+		UInt32 propSize;
+		AudioObjectPropertyAddress theAddress = { kAudioDevicePropertyStreamConfiguration, kAudioDevicePropertyScopeOutput, 0 };
+		if (AudioObjectGetPropertyDataSize(devids[i], &theAddress, 0, NULL, &propSize))
+			continue;
+
+		AudioBufferList *buflist = (AudioBufferList *)malloc(propSize);
+		if (AudioObjectGetPropertyData(devids[i], &theAddress, 0, NULL, &propSize, buflist))
+			continue;
+		int channels = 0;
+		for (UInt32 i = 0; i < buflist->mNumberBuffers; ++i)
+			channels += buflist->mBuffers[i].mNumberChannels;
+		free(buflist);
+		if (channels == 0)
+			continue;
+
+		UInt32 maxlen = 1024;
+		char buf[maxlen];
+		theAddress = { kAudioDevicePropertyDeviceName, kAudioDevicePropertyScopeOutput, 0 };
+		AudioObjectGetPropertyData(devids[i], &theAddress, 0, NULL, &maxlen, buf);
+		LOG(DEBUG) << "device: " << i << ", name: " << buf << ", channels: " << channels << "\n";
+
+		result.push_back(PcmDevice(i, buf));
+	}
+	delete[] devids;
+	return result;
 }
 
 
@@ -55,34 +104,59 @@ void CoreAudioPlayer::playerCallback(AudioQueueRef queue, AudioQueueBufferRef bu
 	size_t bufferedMs = bufferedFrames * 1000 / pubStream_->getFormat().rate + (ms_ * (NUM_BUFFERS - 1));
 	/// 15ms DAC delay. Based on trying.
 	bufferedMs += 15;
-//    logO << "buffered: " << bufferedFrames << ", ms: " << bufferedMs << ", mSampleTime: " << timestamp.mSampleTime << "\n";
+//    LOG(INFO) << "buffered: " << bufferedFrames << ", ms: " << bufferedMs << ", mSampleTime: " << timestamp.mSampleTime << "\n";
 
 	/// TODO: sometimes this bufferedMS or AudioTimeStamp wraps around 1s (i.e. we're 1s out of sync (behind)) and recovers later on
 	chronos::usec delay(bufferedMs * 1000);
 	char *buffer = (char*)bufferRef->mAudioData;
 	if (!pubStream_->getPlayerChunk(buffer, delay, frames_))
 	{
-		logO << "Failed to get chunk. Playing silence.\n";
+		if (chronos::getTickCount() - lastChunkTick > 5000)
+		{
+			LOG(NOTICE) << "No chunk received for 5000ms. Closing Audio Queue.\n";
+			uninitAudioQueue(queue);
+			return;
+		}
+//		LOG(INFO) << "Failed to get chunk. Playing silence.\n";
 		memset(buffer, 0, buff_size_);
 	}
 	else
 	{
+		lastChunkTick = chronos::getTickCount();
 		adjustVolume(buffer, frames_);
 	}
 
-//    OSStatus status = 
+//    OSStatus status =
 	AudioQueueEnqueueBuffer(queue, bufferRef, 0, NULL);
 
 	if (!active_)
 	{
-		AudioQueueStop(queue, false);
-		AudioQueueDispose(queue, false);
-		CFRunLoopStop(CFRunLoopGetCurrent());
+		uninitAudioQueue(queue);
 	}
 }
 
 
 void CoreAudioPlayer::worker()
+{
+	while (active_)
+	{
+		if (pubStream_->waitForChunk(100))
+		{
+			try
+			{
+				initAudioQueue();
+			}
+			catch (const std::exception& e)
+			{
+				LOG(ERROR) << "Exception in worker: " << e.what() << "\n";
+				chronos::sleep(100);
+			}
+		}
+		chronos::sleep(100);
+	}
+}
+
+void CoreAudioPlayer::initAudioQueue()
 {
 	const SampleFormat& sampleFormat = pubStream_->getFormat();
 
@@ -100,7 +174,7 @@ void CoreAudioPlayer::worker()
 	AudioQueueRef queue;
 	AudioQueueNewOutput(&format, callback, this, CFRunLoopGetCurrent(), kCFRunLoopCommonModes, 0, &queue);
 	AudioQueueCreateTimeline(queue, &timeLine_);
-	
+
 	// Apple recommends this as buffer size:
 	// https://developer.apple.com/library/content/documentation/MusicAudio/Conceptual/CoreAudioOverview/CoreAudioEssentials/CoreAudioEssentials.html
 	// static const int maxBufferSize = 0x10000;   // limit maximum size to 64K
@@ -111,8 +185,8 @@ void CoreAudioPlayer::worker()
 	frames_ = (sampleFormat.rate * ms_) / 1000;
 	ms_ = frames_ * 1000 / sampleFormat.rate;
 	buff_size_ = frames_ * sampleFormat.frameSize;
-	logO << "frames: " << frames_ << ", ms: " << ms_ << ", buffer size: " << buff_size_ << "\n";
-	
+	LOG(INFO) << "frames: " << frames_ << ", ms: " << ms_ << ", buffer size: " << buff_size_ << "\n";
+
 	AudioQueueBufferRef buffers[NUM_BUFFERS];
 	for (int i = 0; i < NUM_BUFFERS; i++)
 	{
@@ -121,10 +195,16 @@ void CoreAudioPlayer::worker()
 		callback(this, queue, buffers[i]);
 	}
 
-	logE << "CoreAudioPlayer::worker\n";
+	LOG(ERROR) << "CoreAudioPlayer::worker\n";
 	AudioQueueCreateTimeline(queue, &timeLine_);
 	AudioQueueStart(queue, NULL);
-	CFRunLoopRun();    
+	CFRunLoopRun();
 }
 
-
+void CoreAudioPlayer::uninitAudioQueue(AudioQueueRef queue)
+{
+	AudioQueueStop(queue, false);
+	AudioQueueDispose(queue, false);
+	pubStream_->clearChunks();
+	CFRunLoopStop(CFRunLoopGetCurrent());
+}

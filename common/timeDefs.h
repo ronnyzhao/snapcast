@@ -1,6 +1,6 @@
 /***
     This file is part of snapcast
-    Copyright (C) 2014-2016  Johannes Pohl
+    Copyright (C) 2014-2018  Johannes Pohl
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -20,6 +20,7 @@
 #define TIME_DEFS_H
 
 #include <chrono>
+#include <thread>
 #include <sys/time.h>
 #ifdef MACOS
 #include <mach/clock.h>
@@ -34,6 +35,21 @@ namespace chronos
 	typedef std::chrono::milliseconds msec;
 	typedef std::chrono::microseconds usec;
 	typedef std::chrono::nanoseconds nsec;
+
+	template <class Clock>
+	inline static void timeofday(struct timeval *tv)
+	{
+		auto now = Clock::now();
+  		auto millisecs = std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch());
+  		tv->tv_sec = millisecs.count()/1000;
+  		tv->tv_usec = (millisecs.count()%1000)*1000;
+	}
+
+	inline static void systemtimeofday(struct timeval *tv)
+	{
+		gettimeofday(tv, NULL);
+		//timeofday<std::chrono::system_clock>(tv);
+	}
 
 	inline static void addUs(timeval& tv, int us)
 	{
@@ -77,6 +93,27 @@ namespace chronos
 	inline int64_t duration(std::chrono::duration<Rep, Period> d)
 	{
 		return std::chrono::duration_cast<ToDuration>(d).count();
+	}
+
+	/// some sleep functions. Just for convenience.
+	template< class Rep, class Period >
+	inline void sleep(const std::chrono::duration<Rep, Period>& sleep_duration)
+	{
+		std::this_thread::sleep_for(sleep_duration);
+	}
+
+	inline void sleep(const int32_t& milliseconds)
+	{
+		if (milliseconds < 0)
+			return;
+		sleep(msec(milliseconds));
+	}
+
+	inline void usleep(const int32_t& microseconds)
+	{
+		if (microseconds < 0)
+			return;
+		sleep(usec(microseconds));
 	}
 }
 

@@ -1,6 +1,6 @@
 /***
     This file is part of snapcast
-    Copyright (C) 2014-2016  Johannes Pohl
+    Copyright (C) 2014-2018  Johannes Pohl
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -19,28 +19,73 @@
 #include "config.h"
 #include <sys/types.h>
 #include <sys/stat.h>
+#include <fcntl.h>
 #include <fstream>
 #include <cerrno>
 #include "common/snapException.h"
 #include "common/strCompat.h"
-#include "common/log.h"
+#include "common/utils/file_utils.h"
+#include "aixlog.hpp"
 
 using namespace std;
 
 
 Config::Config()
 {
+}
+
+
+Config::~Config()
+{
+	save();
+}
+
+
+void Config::init(const std::string& root_directory, const std::string& user, const std::string& group)
+{
 	string dir;
-	if (getenv("HOME") == NULL)
-		dir = "/var/lib/snapcast/";
+	if (!root_directory.empty())
+		dir = root_directory;
+	else if (getenv("HOME") == NULL)
+		dir = "/var/lib/snapserver/";
 	else
-		dir = getenv("HOME") + string("/.config/snapcast/");
-	int status = mkdirRecursive(dir.c_str(), S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH);
+		dir = getenv("HOME");
+
+	if (!dir.empty() && (dir.back() != '/'))
+		dir += "/";
+
+	if (dir.find("/var/lib/snapserver") == string::npos)
+		dir += ".config/snapserver/";
+
+	int status = utils::file::mkdirRecursive(dir.c_str(), S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH);
 	if ((status != 0) && (errno != EEXIST))
 		throw SnapException("failed to create settings directory: \"" + dir + "\": " + cpt::to_string(errno));
 
 	filename_ = dir + "server.json";
-	logO << "Settings file: " << filename_ << "\n";
+	SLOG(NOTICE) << "Settings file: \"" << filename_ << "\"\n";
+
+	int fd;
+	if ((fd = open(filename_.c_str(), O_RDWR | O_CREAT, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH)) == -1)
+	{
+		if (errno == EACCES)
+			throw std::runtime_error("failed to open file \"" + filename_ + "\", permission denied (error " + cpt::to_string(errno) + ")");
+		else 
+			throw std::runtime_error("failed to open file \"" + filename_ + "\", error " + cpt::to_string(errno));
+	}
+	close(fd);
+
+	if (!user.empty() && !group.empty())
+	{
+		try
+		{
+			utils::file::do_chown(dir, user, group);
+			utils::file::do_chown(filename_, user, group);
+		}
+		catch(const std::exception& e)
+		{
+			SLOG(ERROR) << "Exception in chown: " << e.what() << "\n";
+		}
+	}
 
 	try
 	{
@@ -51,76 +96,196 @@ Config::Config()
 			ifs >> j;
 			if (j.count("ConfigVersion"))
 			{
-				json jClient = j["Client"];
-				for (json::iterator it = jClient.begin(); it != jClient.end(); ++it)
+				json jGroups = j["Groups"];
+				for (auto it = jGroups.begin(); it != jGroups.end(); ++it)
 				{
-					ClientInfoPtr client = make_shared<ClientInfo>();
-					client->fromJson(*it);
-					if (client->host.mac.empty())
-						continue;
-					for (const auto& c: clients)
-					{
-						if (c->host.mac == client->host.mac)
-							continue;
-					}
-
-					client->connected = false;
-					clients.push_back(client);
+					GroupPtr group = make_shared<Group>();
+					group->fromJson(*it);
+//					if (client->id.empty() || getClientInfo(client->id))
+//						continue;
+					groups.push_back(group);
 				}
 			}
 		}
 	}
 	catch(const std::exception& e)
 	{
-		logE << "Error reading config: " << e.what() << "\n";
+		LOG(ERROR) << "Error reading config: " << e.what() << "\n";
 	}
 }
 
 
 void Config::save()
 {
+	if (filename_.empty())
+		init();
 	std::ofstream ofs(filename_.c_str(), std::ofstream::out|std::ofstream::trunc);
 	json clients = {
-		{"ConfigVersion", 1},
-		{"Client", getClientInfos()}
+		{"ConfigVersion", 2},
+		{"Groups", getGroups()}
 	};
 	ofs << std::setw(4) << clients;
 	ofs.close();
 }
 
 
-ClientInfoPtr Config::getClientInfo(const std::string& macAddress, bool add)
+ClientInfoPtr Config::getClientInfo(const std::string& clientId) const
 {
-	if (macAddress.empty())
+	if (clientId.empty())
 		return nullptr;
 
-	for (auto client: clients)
+	for (auto group: groups)
 	{
-		if (client->host.mac == macAddress)
-			return client;
+		for (auto client: group->clients)
+		{
+			if (client->id == clientId)
+				return client;
+		}
 	}
 
-	if (!add)
-		return nullptr;
-
-	ClientInfoPtr client = make_shared<ClientInfo>(macAddress);
-	clients.push_back(client);
-
-	return client;
+	return nullptr;
 }
 
 
-json Config::getClientInfos() const
+GroupPtr Config::addClientInfo(ClientInfoPtr client)
+{
+	GroupPtr group = getGroupFromClient(client);
+	if (!group)
+	{
+		group = std::make_shared<Group>();
+		group->addClient(client);
+		groups.push_back(group);
+	}
+	return group;
+}
+
+
+GroupPtr Config::addClientInfo(const std::string& clientId)
+{
+	ClientInfoPtr client = getClientInfo(clientId);
+	if (!client)
+		client = make_shared<ClientInfo>(clientId);
+	return addClientInfo(client);
+}
+
+
+GroupPtr Config::getGroup(const std::string& groupId) const
+{
+	for (auto group: groups)
+	{
+		if (group->id == groupId)
+			return group;
+	}
+
+	return nullptr;
+}
+
+
+GroupPtr Config::getGroupFromClient(const std::string& clientId)
+{
+	for (auto group: groups)
+	{
+		for (auto c: group->clients)
+		{
+			if (c->id == clientId)
+				return group;
+		}
+	}
+	return nullptr;
+}
+
+
+GroupPtr Config::getGroupFromClient(ClientInfoPtr client)
+{
+	return getGroupFromClient(client->id);
+}
+
+
+json Config::getServerStatus(const json& streams) const
+{
+	Host host;
+	host.update();
+	//TODO: Set MAC and IP
+	Snapserver snapserver("Snapserver", VERSION);
+	json serverStatus = {
+		{"server", {
+			{"host", host.toJson()},//getHostName()},
+			{"snapserver", snapserver.toJson()}
+		}},
+		{"groups", getGroups()},
+		{"streams", streams}
+	};
+
+	return serverStatus;
+}
+
+
+
+json Config::getGroups() const
 {
 	json result = json::array();
-	for (auto client: clients)
-		result.push_back(client->toJson());
+	for (auto group: groups)
+		result.push_back(group->toJson());
 	return result;
 }
 
 
 void Config::remove(ClientInfoPtr client)
 {
-	clients.erase(std::remove(clients.begin(), clients.end(), client), clients.end());
+	auto group = getGroupFromClient(client);
+	if (!group)
+		return;
+	group->removeClient(client);
+	if (group->empty())
+		remove(group);
 }
+
+
+void Config::remove(GroupPtr group, bool force)
+{
+	if (!group)
+		return;
+
+	if (group->empty() || force)
+		groups.erase(std::remove(groups.begin(), groups.end(), group), groups.end());
+}
+
+/*
+GroupPtr Config::removeFromGroup(const std::string& groupId, const std::string& clientId)
+{
+	GroupPtr group = getGroup(groupId);
+	if (!group || (group->id != groupId))
+		return group;
+
+	auto client = getClientInfo(clientId);
+	if (client)
+		group->clients.erase(std::remove(group->clients.begin(), group->clients.end(), client), group->clients.end());
+
+	addClientInfo(clientId);
+	return group;
+}
+
+
+GroupPtr Config::setGroupForClient(const std::string& groupId, const std::string& clientId)
+{
+	GroupPtr oldGroup = getGroupFromClient(clientId);
+	if (oldGroup && (oldGroup->id == groupId))
+		return oldGroup;
+	
+	GroupPtr newGroup = getGroup(groupId);
+	if (!newGroup)
+		return nullptr;
+
+	auto client = getClientInfo(clientId);
+	if (!client)
+		return nullptr;
+
+	if (oldGroup)
+		removeFromGroup(oldGroup->id, clientId);
+
+	newGroup->addClient(client);
+	return newGroup;	
+}
+*/
+
 

@@ -1,6 +1,6 @@
 /***
     This file is part of snapcast
-    Copyright (C) 2014-2016  Johannes Pohl
+    Copyright (C) 2014-2018  Johannes Pohl
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -18,11 +18,15 @@
 
 #include "encoderFactory.h"
 #include "pcmEncoder.h"
+#if defined(HAS_OGG) && defined(HAS_VORBIS) && defined(HAS_VORBIS_ENC)
 #include "oggEncoder.h"
+#endif
+#if defined(HAS_FLAC)
 #include "flacEncoder.h"
-#include "common/utils.h"
+#endif
+#include "common/utils/string_utils.h"
 #include "common/snapException.h"
-#include "common/log.h"
+#include "aixlog.hpp"
 
 
 using namespace std;
@@ -35,15 +39,19 @@ Encoder* EncoderFactory::createEncoder(const std::string& codecSettings) const
 	std::string codecOptions;
 	if (codec.find(":") != std::string::npos)
 	{
-		codecOptions = trim_copy(codec.substr(codec.find(":") + 1));
-		codec = trim_copy(codec.substr(0, codec.find(":")));
+		codecOptions = utils::string::trim_copy(codec.substr(codec.find(":") + 1));
+		codec = utils::string::trim_copy(codec.substr(0, codec.find(":")));
 	}
-	if (codec == "ogg")
+    if (codec == "pcm")
+        encoder = new PcmEncoder(codecOptions);
+#if defined(HAS_OGG) && defined(HAS_VORBIS) && defined(HAS_VORBIS_ENC)
+    else if (codec == "ogg")
 		encoder = new OggEncoder(codecOptions);
-	else if (codec == "pcm")
-		encoder = new PcmEncoder(codecOptions);
+#endif
+#if defined(HAS_FLAC)
 	else if (codec == "flac")
 		encoder = new FlacEncoder(codecOptions);
+#endif
 	else
 	{
 		throw SnapException("unknown codec: " + codec);

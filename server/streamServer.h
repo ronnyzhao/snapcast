@@ -1,6 +1,6 @@
 /***
     This file is part of snapcast
-    Copyright (C) 2014-2016  Johannes Pohl
+    Copyright (C) 2014-2018  Johannes Pohl
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -27,6 +27,7 @@
 #include <sstream>
 #include <mutex>
 
+#include "jsonrpcpp.hpp"
 #include "streamSession.h"
 #include "streamreader/streamManager.h"
 #include "common/queue.h"
@@ -39,7 +40,7 @@
 
 using asio::ip::tcp;
 typedef std::shared_ptr<tcp::socket> socket_ptr;
-
+typedef std::shared_ptr<StreamSession> session_ptr;
 
 struct StreamServerSettings
 {
@@ -49,7 +50,8 @@ struct StreamServerSettings
 		codec("flac"),
 		bufferMs(1000),
 		sampleFormat("48000:16:2"),
-		streamReadMs(20)
+		streamReadMs(20),
+		sendAudioToMutedClients(false)
 	{
 	}
 	size_t port;
@@ -59,6 +61,7 @@ struct StreamServerSettings
 	int32_t bufferMs;
 	std::string sampleFormat;
 	size_t streamReadMs;
+	bool sendAudioToMutedClients;
 };
 
 
@@ -89,18 +92,22 @@ public:
 	virtual void onMessageReceived(ControlSession* connection, const std::string& message);
 
 	/// Implementation of PcmListener
+	virtual void onMetaChanged(const PcmStream* pcmStream);
 	virtual void onStateChanged(const PcmStream* pcmStream, const ReaderState& state);
-	virtual void onChunkRead(const PcmStream* pcmStream, const msg::PcmChunk* chunk, double duration);
+	virtual void onChunkRead(const PcmStream* pcmStream, msg::PcmChunk* chunk, double duration);
 	virtual void onResync(const PcmStream* pcmStream, double ms);
 
 private:
 	void startAccept();
 	void handleAccept(socket_ptr socket);
-	StreamSession* getStreamSession(const std::string& mac);
-	mutable std::mutex sessionsMutex_;
-	std::set<std::shared_ptr<StreamSession>> sessions_;
+	session_ptr getStreamSession(const std::string& mac) const;
+	session_ptr getStreamSession(StreamSession* session) const;
+	void ProcessRequest(const jsonrpcpp::request_ptr request, jsonrpcpp::entity_ptr& response, jsonrpcpp::notification_ptr& notification) const;
+	mutable std::recursive_mutex sessionsMutex_;
+	std::set<session_ptr> sessions_;
 	asio::io_service* io_service_;
-	std::shared_ptr<tcp::acceptor> acceptor_;
+	std::shared_ptr<tcp::acceptor> acceptor_v4_;
+	std::shared_ptr<tcp::acceptor> acceptor_v6_;
 
 	StreamServerSettings settings_;
 	Queue<std::shared_ptr<msg::BaseMessage>> messages_;

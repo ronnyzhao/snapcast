@@ -1,6 +1,6 @@
 /***
     This file is part of snapcast
-    Copyright (C) 2014-2016  Johannes Pohl
+    Copyright (C) 2014-2018  Johannes Pohl
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -17,7 +17,7 @@
 ***/
 
 #include "timeProvider.h"
-#include "common/log.h"
+#include "aixlog.hpp"
 
 
 TimeProvider::TimeProvider() : diffToServer_(0)
@@ -28,9 +28,10 @@ TimeProvider::TimeProvider() : diffToServer_(0)
 
 void TimeProvider::setDiff(const tv& c2s, const tv& s2c)
 {
-		tv latency = c2s - s2c;
-		double diff = latency.sec * 1000. + latency.usec / 1000.;
-		setDiffToServer(diff / 2.);
+//	tv latency = c2s - s2c;
+//	double diff = (latency.sec * 1000. + latency.usec / 1000.) / 2.;
+	double diff = ((double)c2s.sec / 2. - (double)s2c.sec / 2.) * 1000. + ((double)c2s.usec / 2. - (double)s2c.usec / 2.) / 1000.;
+	setDiffToServer(diff);
 }
 
 
@@ -38,12 +39,12 @@ void TimeProvider::setDiffToServer(double ms)
 {
 	static int32_t lastTimeSync = 0;
 	timeval now;
-	gettimeofday(&now, NULL);
+	chronos::systemtimeofday(&now);
 
 	/// clear diffBuffer if last update is older than a minute
 	if (!diffBuffer_.empty() && (std::abs(now.tv_sec - lastTimeSync) > 60))
 	{
-		logO << "Last time sync older than a minute. Clearing time buffer\n";
+		LOG(INFO) << "Last time sync older than a minute. Clearing time buffer\n";
 		diffToServer_ = ms*1000;
 		diffBuffer_.clear();
 	}
@@ -51,7 +52,7 @@ void TimeProvider::setDiffToServer(double ms)
 
 	diffBuffer_.add(ms*1000);
 	diffToServer_ = diffBuffer_.median(3);
-//	logO << "setDiffToServer: " << ms << ", diff: " << diffToServer_ / 1000.f << "\n";
+//	LOG(INFO) << "setDiffToServer: " << ms << ", diff: " << diffToServer_ / 1000.f << "\n";
 }
 
 /*

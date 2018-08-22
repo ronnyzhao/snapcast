@@ -11,7 +11,7 @@
 #include <netdb.h>
 #endif
 
-#include "common/log.h"
+#include "aixlog.hpp"
 #include "common/snapException.h"
 
 using namespace std;
@@ -145,6 +145,9 @@ struct mDNSResolve
 
 void runService(const DNSServiceHandle& service)
 {
+	if (!*service)
+		return;
+
 	auto socket = DNSServiceRefSockFD(*service);
 	fd_set set;
 	FD_ZERO(&set);
@@ -164,8 +167,7 @@ void runService(const DNSServiceHandle& service)
 
 bool BrowseBonjour::browse(const string& serviceName, mDNSResult& result, int timeout)
 {
-  result.valid_ = false;
-	
+	result.valid = false;
 	// Discover
 	deque<mDNSReply> replyCollection;
 	{
@@ -216,41 +218,41 @@ bool BrowseBonjour::browse(const string& serviceName, mDNSResult& result, int ti
 	}
 
 	// DNS/mDNS Resolve
-	deque<mDNSResult> resultCollection(resolveCollection.size(), mDNSResult { 0, "", "", 0, false });
+	deque<mDNSResult> resultCollection(resolveCollection.size(), mDNSResult { IPVersion::IPv4, 0, "", "", 0, false });
 	{
 		DNSServiceHandle service(new DNSServiceRef(NULL));
 		unsigned i = 0;
 		for (auto& resolve : resolveCollection)
 		{
-			resultCollection[i].port_ = resolve.port;
+			resultCollection[i].port = resolve.port;
 			CHECKED(DNSServiceGetAddrInfo(service.get(), kDNSServiceFlagsLongLivedQuery, 0, kDNSServiceProtocol_IPv4, resolve.fullName.c_str(),
-																		[](DNSServiceRef service,
-																			 DNSServiceFlags flags,
-																			 uint32_t interfaceIndex,
-																			 DNSServiceErrorType errorCode,
-																			 const char* hostname,
-																			 const sockaddr* address,
-																			 uint32_t ttl,
-																			 void* context)
-																		{
-																			auto result = static_cast<mDNSResult*>(context);
+				[](DNSServiceRef service,
+						DNSServiceFlags flags,
+						uint32_t interfaceIndex,
+						DNSServiceErrorType errorCode,
+						const char* hostname,
+						const sockaddr* address,
+						uint32_t ttl,
+						void* context)
+				{
+					auto result = static_cast<mDNSResult*>(context);
 
-																			result->host_ = string(hostname);
-																			result->proto_ = address->sa_family;
+					result->host = string(hostname);
+					result->ip_version = (address->sa_family == AF_INET)?(IPVersion::IPv4):(IPVersion::IPv6);
+					result->iface_idx = static_cast<int>(interfaceIndex);
 
-																			char hostIP[NI_MAXHOST];
-																			char hostService[NI_MAXSERV];
-																			if (getnameinfo(address, sizeof(*address),
-																											hostIP, sizeof(hostIP),
-																											hostService, sizeof(hostService),
-																											NI_NUMERICHOST|NI_NUMERICSERV) == 0)
-																				result->ip_ = string(hostIP);
-																			else
-																				return;
-																			result->valid_ = true;
-																		}, &resultCollection[i++]));
+					char hostIP[NI_MAXHOST];
+					char hostService[NI_MAXSERV];
+					if (getnameinfo(address, sizeof(*address),
+													hostIP, sizeof(hostIP),
+													hostService, sizeof(hostService),
+													NI_NUMERICHOST|NI_NUMERICSERV) == 0)
+						result->ip = string(hostIP);
+					else
+						return;
+					result->valid = true;
+				}, &resultCollection[i++]));
 		}
-		
 		runService(service);
 	}
 
@@ -258,7 +260,7 @@ bool BrowseBonjour::browse(const string& serviceName, mDNSResult& result, int ti
 		return false;
 
 	if (resultCollection.size() != 1)
-		logO << "Multiple servers found.  Using first" << endl;
+		LOG(NOTICE) << "Multiple servers found.  Using first" << endl;
 
 	result = resultCollection[0];
 	

@@ -1,6 +1,6 @@
 /***
     This file is part of snapcast
-    Copyright (C) 2014-2016  Johannes Pohl
+    Copyright (C) 2014-2018  Johannes Pohl
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -25,8 +25,8 @@
 #include <vector>
 #include "stream.h"
 #include "pcmDevice.h"
-#include "common/endian.h"
-#include "common/log.h"
+#include "common/endian.hpp"
+#include "aixlog.hpp"
 
 
 /// Audio Player
@@ -36,7 +36,7 @@
 class Player
 {
 public:
-	Player(const PcmDevice& pcmDevice, Stream* stream);
+	Player(const PcmDevice& pcmDevice, std::shared_ptr<Stream> stream);
 	virtual ~Player();
 
 	/// Set audio volume in range [0..1]
@@ -47,6 +47,9 @@ public:
 
 protected:
 	virtual void worker() = 0;
+
+	void setVolume_poly(double volume, double exp);
+	void setVolume_exp(double volume, double base);
 
 	template <typename T>
 	void adjustVolume(char *buffer, size_t count, double volume)
@@ -59,7 +62,7 @@ protected:
 	void adjustVolume(char* buffer, size_t frames);
 
 	std::atomic<bool> active_;
-	Stream* stream_;
+	std::shared_ptr<Stream> stream_;
 	std::thread playerThread_;
 	PcmDevice pcmDevice_;
 	double volume_;

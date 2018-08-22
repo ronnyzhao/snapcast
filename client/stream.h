@@ -1,6 +1,6 @@
 /***
     This file is part of snapcast
-    Copyright (C) 2014-2016  Johannes Pohl
+    Copyright (C) 2014-2018  Johannes Pohl
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -89,9 +89,6 @@ private:
 	unsigned long playedFrames_;
 	long correctAfterXFrames_;
 	chronos::msec bufferMs_;
-
-	mutable std::condition_variable cv_;
-	mutable std::mutex cvMutex_;
 };
 
 
